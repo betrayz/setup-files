@@ -1,0 +1,79 @@
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+  # Don't log requests to the following URL paths.
+  - level: None
+    nonResourceURLs:
+      - "/livez*" #/healthz is deprecated
+      - "/readyz*"
+      - "/logs"
+      - "/metrics"
+      - "/swagger*"
+      - "/version"
+  # High volume low risk logs.
+  - level: None
+    userGroups: ["system:nodes"]
+    verbs: ["get"]
+    resources:
+      - group: "" # core API group
+        resources: ["nodes", "nodes/status"] 
+  # Don't log authenticated requests to certain non-resource URL paths.
+  # Should cut down amount of haproxy generated events, but may need further revision in the future.
+  - level: None
+    users: ["system:serviceaccount:kube-system:haproxy-anchor"]
+    verbs: ["get"]
+    nonResourceURLs:
+      - "/api*" # Wildcard matching for now.
+  # Don't log watch requests by the "system:kube-proxy" on endpoints or services.
+  - level: None
+    users: ["system:kube-proxy"]
+    verbs: ["watch"]
+    resources:
+      - group: "" # core API group
+        resources: ["endpoints", "services", "services/status"]
+  # High volume low risk logs.
+  - level: None
+    users: ["system:apiserver"]
+    verbs: ["get"]
+    resources:
+      - group: "" # core API group
+        resources: ["namespaces", "namespaces/status", "namespaces/finalize"]
+  # Log the request body of configmap changes in kube-system.
+  - level: Request
+    omitStages:
+        - "RequestReceived"
+    resources:
+        - group: "" # core API group
+          resources: ["configmaps"]
+    # This rule only applies to resources in the "kube-system" namespace due to potential for container sensitive date (catch all rule on next line).
+    namespaces: ["kube-system"]
+  # Secrets, ConfigMaps, TokenRequest and TokenReviews can contain sensitive & binary data,
+  # so only log at the Metadata level.
+  - level: Metadata
+    omitStages:
+      - "RequestReceived"
+    resources:
+      - group: "" # core API group
+        resources: ["secrets", "configmaps", "serviceaccounts/token"]
+      - group: authentication.k8s.io
+        resources: ["tokenreviews"]
+    # Extended audit of auth delegation.
+  - level: RequestResponse
+    omitStages:
+        - "RequestReceived"
+    resources:
+        - group: authorization.k8s.io
+          resources:
+              - subjectaccessreviews
+    # Log changes to pods at RequestResponse level.
+  - level: RequestResponse
+    omitStages:
+        - "RequestReceived"
+    resources:
+        - group: "" # core API group
+          resources: ["pods"]
+          verbs: ["create", "patch", "update", "delete"]
+    # Catch all for everything else not defined.
+  - level: Metadata
+    omitStages:
+        - "RequestReceived"
